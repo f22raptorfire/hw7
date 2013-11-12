@@ -113,6 +113,7 @@ TOKEN: { /* Reserved words */
 TOKEN: /* Special symbols */
 {
     <COLON        : ":">
+  | <AT           : "@">
   | <EQUALS       : "=">
   | <EE           : "==">
   | <NE           : "!=">
@@ -250,18 +251,31 @@ void ifStatement() : {}
 }
 
 void declarationStatement() #void : {}
-{  declaration() <SEMICOLON> (<EOL>)*
+{  <AT> declaration() <SEMICOLON> (<EOL>)*
 }
 
-void declaration() #void : {Token t, s;}
+void declaration() #void : {ArrayList<SymTabEntry> variableList;
+	                                 int index = 0;}
 {
-  (    s = < INT > t = <IDENTIFIER> { System.out.println(s + ": " + t.image);}
-  | s = < REAL > t = <IDENTIFIER> { System.out.println(s + ": " + t.image);}
-  | s = < BOOLEAN > t = <IDENTIFIER> { System.out.println(s + ": " + t.image);}
-  | s = < STRING > t = <IDENTIFIER> { System.out.println(s + ": " + t.image);}
-  )
-    (	  <COMMA> t = <IDENTIFIER>  { System.out.println(s + ": " + t.image);}
+  <IDENTIFIER> {
+    variableList = new ArrayList<SymTabEntry>();
+    SymTabEntry typeId = symTabStack.lookup(token.image);
+    typeId.appendLineNumber(token.beginLine);
+    TypeSpec type = typeId.getTypeSpec();
+  }
+	<IDENTIFIER> {
+	        processVariableDecl(token, index++, variableList);
+	}
+	(
+	    <COMMA>
+	    <IDENTIFIER> {
+	        processVariableDecl(token, index++, variableList);
+	    }
 	)*
+	{
+	    for (SymTabEntry variableId : variableList) {
+	        variableId.setTypeSpec(type);
+		}	}
 }
 
 void assignmentStatement() : {}
@@ -270,7 +284,10 @@ void assignmentStatement() : {}
 
 void assignment() : {}
 {
-    variable()
+    variable() {
+        SymTabEntry variableId = symTabStack.lookup(token.image);
+        variableId.appendLineNumber(token.beginLine);
+    }
     <EQUALS>
     expression()
 }
@@ -316,28 +333,51 @@ void factor() #void : {}
   )
 }
 
-void variable() : {Token t;}
+void variable() : {}
 {
-    t = <IDENTIFIER> {jjtThis.setImage(t.image);}
+    <IDENTIFIER> {
+        SymTabEntry variableId = symTabStack.lookup(token.image);
+        variableId.appendLineNumber(token.beginLine);
+        TypeSpec type = variableId.getTypeSpec();
+        jjtThis.setTypeSpec(type);
+        jjtThis.setAttribute(ID, variableId);
+        }
 }
 
-void integerConstant() : {Token t;}{  t = <INT_LIT> {jjtThis.setImage(t.image);}}
+void integerConstant() : {}{  <INT_LIT> {
+        jjtThis.setTypeSpec(Predefined.integerType);
+        jjtThis.setAttribute(VALUE, Integer.parseInt(token.image));
+        }}
 
-void realConstant() : {Token t;}
+void realConstant() : {}
 {
-    t = <REAL_LIT> {jjtThis.setImage(t.image);}
+    <REAL_LIT> {
+        jjtThis.setTypeSpec(Predefined.realType);
+        jjtThis.setAttribute(VALUE, Float.parseFloat(token.image));
+    }
 }
 
-void booleanConstant() : {Token t;}{	  t = <TRUE> {jjtThis.setImage(t.image);}
-	| t = <FALSE> {jjtThis.setImage(t.image);}
+void booleanConstant() : {}{	  <TRUE> {}
+	| <FALSE> {}
 }
 
-void stringConstant() : {Token t;}{	t = <STRING_LIT> {jjtThis.setImage(t.image);}
+void stringConstant() : {}{	<STRING_LIT> {}
 } 
 
-void error() : {}
+void error() #void : {}
 {
     <ERROR>
+}
+
+JAVACODE
+void processVariableDecl(Token token, int index,
+                         ArrayList<SymTabEntry> variableList) #void
+{
+    SymTabEntry variableId = symTabStack.enterLocal(token.image);
+    variableId.setIndex(index);
+    variableId.setDefinition(DefinitionImpl.VARIABLE);
+    variableId.appendLineNumber(token.beginLine);
+    variableList.add(variableId);
 }
 
 JAVACODE

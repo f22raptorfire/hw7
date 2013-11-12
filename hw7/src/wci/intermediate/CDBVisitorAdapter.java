@@ -11,7 +11,6 @@ import wci.frontend.ASTand;
 import wci.frontend.ASTassignment;
 import wci.frontend.ASTbooleanConstant;
 import wci.frontend.ASTdoLoop;
-import wci.frontend.ASTerror;
 import wci.frontend.ASTforLoop;
 import wci.frontend.ASTifStatement;
 import wci.frontend.ASTnegate;
@@ -179,11 +178,6 @@ public class CDBVisitorAdapter implements CDBVisitor
 
 	@Override
 	public Object visit(ASTstringConstant node, Object data) {
-		return node.childrenAccept(this, data);
-	}
-
-	@Override
-	public Object visit(ASTerror node, Object data) {
 		return node.childrenAccept(this, data);
 	}
 }
