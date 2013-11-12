@@ -1,6 +1,6 @@
 String a, b, c;
 life = 3.14;
-if one < life) {
+if (one < life) {
 	c = "This is a compound then";
 	life = life - 3;
 }

@@ -1,19 +1,45 @@
 options {
-    JJTREE_OUTPUT_DIRECTORY="src";
+    JJTREE_OUTPUT_DIRECTORY="src/wci/frontend";
+    NODE_EXTENDS="wci.intermediate.icodeimpl.ICodeNodeImpl";
     IGNORE_CASE=true;
+    MULTI=true;
+    VISITOR=true;
 }
 
 PARSER_BEGIN(CDB)
+package wci.frontend;
+
+import java.util.ArrayList;
 import java.io.*;
+
+import wci.intermediate.*;
+import wci.intermediate.symtabimpl.*;
+import wci.backend.*;
+import wci.util.*;
+
+import static wci.intermediate.symtabimpl.SymTabKeyImpl.*;
+import static wci.intermediate.symtabimpl.DefinitionImpl.*;
+import static wci.intermediate.symtabimpl.RoutineCodeImpl.*;
+import static wci.intermediate.symtabimpl.SymTabKeyImpl.*;
+import static wci.intermediate.icodeimpl.ICodeKeyImpl.*;
 
 public class CDB 
 {
 	private static final String SOURCE_SUFFIX = ".cdb";
     private static final String OUTPUT_SUFFIX = ".j";
-  
+
+	private static SymTabStack symTabStack;
+    private static SymTabEntry programId;
+
   public static void main(String[] args)
   	throws Exception
   {
+	// Create and initialize the symbol table stack.
+    symTabStack = SymTabFactory.createSymTabStack();
+    Predefined.initialize(symTabStack);
+
+	// Process the source file path which ends in .cdb
+    // and create the output file path which ends in .j
 	String sourceFilePath = args[0];
     int truncatedLength = sourceFilePath.length() - SOURCE_SUFFIX.length();
     int suffixIndex = sourceFilePath.lastIndexOf(SOURCE_SUFFIX);
@@ -21,16 +47,27 @@ public class CDB
         ? sourceFilePath.substring(0, truncatedLength) + OUTPUT_SUFFIX
         : sourceFilePath + OUTPUT_SUFFIX;
 
+	// Parse the CDB program.
     Reader reader = new FileReader(sourceFilePath);
-    CDB calc = new CDB(reader);
-    
-    try {
-      SimpleNode node = calc.program();
-      node.dump(">");
-    } 
-    catch (ParseException ex) {
-      ex.printStackTrace();
-    }
+    CDB parser = new CDB(reader);
+    SimpleNode rootNode = parser.program();
+
+    // Print the cross-reference table.
+    CrossReferencer crossReferencer = new CrossReferencer();
+    crossReferencer.print(symTabStack);
+
+	// Visit the parse tree nodes to decorate them with type information.
+    TypeSetterVisitor typeVisitor = new TypeSetterVisitor();
+    rootNode.jjtAccept(typeVisitor, null);
+
+	// Create and initialize the ICode wrapper for the parse tree.
+    ICode iCode = ICodeFactory.createICode();
+    iCode.setRoot(rootNode);
+    programId.setAttribute(ROUTINE_ICODE, iCode);
+
+    // Print the parse tree.
+    ParseTreePrinter treePrinter = new ParseTreePrinter(System.out);
+    treePrinter.print(symTabStack);
   }
 }
 PARSER_END(CDB)
