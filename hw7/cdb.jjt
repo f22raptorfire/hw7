@@ -1,0 +1,320 @@
+options {
+    JJTREE_OUTPUT_DIRECTORY="src";
+    IGNORE_CASE=true;
+}
+
+PARSER_BEGIN(CDB)
+import java.io.*;
+
+public class CDB 
+{
+	private static final String SOURCE_SUFFIX = ".cdb";
+    private static final String OUTPUT_SUFFIX = ".j";
+  
+  public static void main(String[] args)
+  	throws Exception
+  {
+	String sourceFilePath = args[0];
+    int truncatedLength = sourceFilePath.length() - SOURCE_SUFFIX.length();
+    int suffixIndex = sourceFilePath.lastIndexOf(SOURCE_SUFFIX);
+    String objectFilePath = (suffixIndex == truncatedLength)
+        ? sourceFilePath.substring(0, truncatedLength) + OUTPUT_SUFFIX
+        : sourceFilePath + OUTPUT_SUFFIX;
+
+    Reader reader = new FileReader(sourceFilePath);
+    CDB calc = new CDB(reader);
+    
+    try {
+      SimpleNode node = calc.program();
+      node.dump(">");
+    } 
+    catch (ParseException ex) {
+      ex.printStackTrace();
+    }
+  }
+}
+PARSER_END(CDB)
+
+SKIP: {
+    " " | "\t"
+}
+
+SKIP:
+{
+  <SINGLE_LINE_COMMENT : "//" (~["\n","\r"])* ("\r" | "\n" | "\r\n") >
+} 
+
+//skip multi-line comments
+MORE : {
+  "/*" : IN_MULTI_LINE_COMMENT
+}
+
+<IN_MULTI_LINE_COMMENT>
+MORE : {
+  < ~[] >
+}
+
+<IN_MULTI_LINE_COMMENT>
+SPECIAL_TOKEN : {
+  <MULTI_LINE_COMMENT: "*/"> : DEFAULT
+}
+
+TOKEN: { /* Reserved words */
+    <IF        : "IF">
+  | <ELSE      : "ELSE">
+  | <TRUE      : "TRUE">
+  | <FALSE     : "FALSE">
+  | <WHILE     : "WHILE">
+  | <FOR       : "FOR">
+  | <DO        : "DO">
+  | <STRING    : "STRING">
+  | <INT       : "INT">
+  | <REAL      : "REAL">
+  | <BOOLEAN   : "BOOLEAN">
+}
+
+TOKEN: /* Special symbols */
+{
+    <COLON        : ":">
+  | <EQUALS       : "=">
+  | <EE           : "==">
+  | <NE           : "!=">
+  | <LT           : "<">
+  | <LE           : "<=">
+  | <GT           : ">">
+  | <GE           : ">=">
+  | <COMMA        : ",">
+  | <DOT          : ".">
+  | <SEMICOLON    : ";">
+  | <PLUS         : "+">
+  | <MINUS        : "-">
+  | <STAR         : "*">
+  | <SLASH        : "/">
+  | <QUOTE        : "'">
+  | <DOUBLE_QUOTE : "\"">
+  | <LEFT_PAREN   : "(">
+  | <RIGHT_PAREN  : ")">
+  | <LEFT_BRACE   : "{">
+  | <RIGHT_BRACE  : "}">   
+  | <AND          : "&&">
+  | <OR           : "||">
+}
+
+TOKEN: { /* Identifiers, strings, and numbers */
+    <IDENTIFIER : <LETTER>(<LETTER>|<DIGIT>)*>
+  | <STRING_LIT : <DOUBLE_QUOTE>(~["\""])*<DOUBLE_QUOTE>>
+
+  | <INT_LIT    : <UNSIGNED_NUMBER>>
+  | <REAL_LIT   : <WHOLE><FRACTION><EXPONENT>
+             | <WHOLE><FRACTION>
+             | <WHOLE><EXPONENT>>
+
+  | <#LETTER : ["a"-"z", "A"-"Z"]>
+  | <#DIGIT  : ["0"-"9"]>
+  | <#SIGN   : ["+", "-"]>
+
+  | <#UNSIGNED_NUMBER : (<DIGIT>)+>
+  | <#WHOLE           : <UNSIGNED_NUMBER>>
+  | <#FRACTION        : "." <UNSIGNED_NUMBER>>
+  | <#EXPONENT        : "E"(<SIGN>)?<UNSIGNED_NUMBER>>
+}
+
+TOKEN: { /*	Error token */
+    <EOL     : "\r" | "\n" | "\r\n">
+ |  <ERROR : ~["\r", "\n"]>
+}
+
+SimpleNode program() : {}
+{
+  (<EOL>)*
+  (
+    try {
+        statement() {System.out.println("Processed Statement");}
+      | error()     {handleError(token);}
+    }
+    catch (ParseException ex) {
+      handleError(ex.currentToken);
+    }
+  )+
+  <EOF>
+  {return jjtThis;}
+}
+
+SimpleNode compoundStatement() : {}
+{    <LEFT_BRACE>
+	(<EOL>)*    (statement())+
+    <RIGHT_BRACE>
+	(<EOL>)*
+    { return jjtThis; }
+}
+
+void statement() #void : {}
+{
+  (       controlStatement()
+     | declarationStatement()
+     | assignmentStatement()
+  )
+}
+
+void controlStatement() #void : {}
+{
+  (
+	  whileLoop()
+	| forLoop() 
+	| doLoop() (<EOL>)*
+    | ifStatement()
+  )
+}
+
+void whileLoop() : {}{  <WHILE> <LEFT_PAREN> expression() <RIGHT_PAREN> 
+	(<EOL>)*
+  (
+	  compoundStatement() 
+	| statement()
+  )
+}
+
+void forLoop() : {}
+{  <FOR>
+  <LEFT_PAREN>
+  (assignment())?
+  <SEMICOLON>
+  (expression())?
+  <SEMICOLON>
+  (assignment())?
+  <RIGHT_PAREN>
+  (<EOL>)*
+  (
+	  compoundStatement()
+	| statement()
+  )
+}
+
+void doLoop() : {}
+{	<DO>
+	(<EOL>)*
+	(
+	  compoundStatement()
+	| statement()
+    )
+    <WHILE> <LEFT_PAREN> expression() <RIGHT_PAREN> <SEMICOLON>
+}
+
+void ifStatement() : {}
+{	<IF> <LEFT_PAREN> expression() <RIGHT_PAREN>
+	(<EOL>)*
+	(	  compoundStatement()
+	| statement()
+    )
+    ( LOOKAHEAD(1) <ELSE> (
+		  compoundStatement()
+		| statement()
+    ))?
+}
+
+void declarationStatement() #void : {}
+{  declaration() <SEMICOLON> (<EOL>)*
+}
+
+void declaration() #void : {Token t, s;}
+{
+  (    s = < INT > t = <IDENTIFIER> { System.out.println(s + ": " + t.image);}
+  | s = < REAL > t = <IDENTIFIER> { System.out.println(s + ": " + t.image);}
+  | s = < BOOLEAN > t = <IDENTIFIER> { System.out.println(s + ": " + t.image);}
+  | s = < STRING > t = <IDENTIFIER> { System.out.println(s + ": " + t.image);}
+  )
+    (	  <COMMA> t = <IDENTIFIER>  { System.out.println(s + ": " + t.image);}
+	)*
+}
+
+void assignmentStatement() : {}
+{	assignment() <SEMICOLON> (<EOL>)*
+}
+
+void assignment() : {}
+{
+    variable()
+    <EQUALS>
+    expression()
+}
+
+void expression() #void : {}
+{	simpleExpression() (
+		<EE> simpleExpression() #EE(2)
+      | <NE> simpleExpression() #NE(2)
+      | <LT> simpleExpression() #LT(2)
+      | <LE> simpleExpression() #LE(2)
+      | <GT> simpleExpression() #GT(2)
+      | <GE> simpleExpression() #GE(2)
+	)?
+}
+
+void simpleExpression() #void : {}
+{
+    term() (
+        "+" term() #add(2)
+      | "-" term() #subtract(2)
+      | <OR> term() #or(2)
+    )*
+}
+
+void term() #void : {}
+{
+    factor() (
+        "*" factor() #multiply(2)
+      | "/" factor() #divide(2)
+      | <AND> factor() #and(2)
+    )*     
+}
+
+void factor() #void : {}
+{
+  (     variable()
+	  | integerConstant()
+	  | realConstant()
+	  | stringConstant()
+	  | booleanConstant()
+      | "-" factor() #negate(1)
+      | "(" expression() ")" 
+  )
+}
+
+void variable() : {Token t;}
+{
+    t = <IDENTIFIER> {jjtThis.setImage(t.image);}
+}
+
+void integerConstant() : {Token t;}{  t = <INT_LIT> {jjtThis.setImage(t.image);}}
+
+void realConstant() : {Token t;}
+{
+    t = <REAL_LIT> {jjtThis.setImage(t.image);}
+}
+
+void booleanConstant() : {Token t;}{	  t = <TRUE> {jjtThis.setImage(t.image);}
+	| t = <FALSE> {jjtThis.setImage(t.image);}
+}
+
+void stringConstant() : {Token t;}{	t = <STRING_LIT> {jjtThis.setImage(t.image);}
+} 
+
+void error() : {}
+{
+    <ERROR>
+}
+
+JAVACODE
+String handleError(Token token) #void
+{
+  System.out.println("*** ERROR: Line " + token.beginLine +
+                     " after \"" + token.image + "\"");
+  
+  Token t;
+  
+  do {
+    t = getNextToken();
+  } while (t.kind != EOL && t.kind != SEMICOLON);
+  
+  jjtree.popNode();
+  return t.image;
+}

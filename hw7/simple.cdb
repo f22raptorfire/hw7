@@ -1,0 +1,10 @@
+String a, b, c;
+life = 3.14;
+if one < life) {
+	c = "This is a compound then";
+	life = life - 3;
+}
+else {
+    c = "This is a compound else";
+	yes = false;
+}
