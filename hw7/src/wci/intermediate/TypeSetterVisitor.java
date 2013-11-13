@@ -4,7 +4,7 @@ import wci.frontend.*;
 import wci.intermediate.*;
 import wci.intermediate.symtabimpl.*;
 
-public class TypeSetterVisitor extends CDBVisitorAdapter
+public class TypeSetterVisitor extends CdbParserVisitorAdapter
 {
     private void setType(SimpleNode node)
     {
@@ -23,13 +23,6 @@ public class TypeSetterVisitor extends CDBVisitorAdapter
         node.setTypeSpec(type);
     }
     
-    public Object visit(ASTassignmentStatement node, Object data)
-    {
-        Object obj = super.visit(node, data);
-        setType(node);
-        return obj;
-    }
-
     public Object visit(ASTadd node, Object data)
     {
         Object obj = super.visit(node, data);

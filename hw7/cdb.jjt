@@ -1,12 +1,12 @@
 options {
+    IGNORE_CASE=true;
     JJTREE_OUTPUT_DIRECTORY="src/wci/frontend";
     NODE_EXTENDS="wci.intermediate.icodeimpl.ICodeNodeImpl";
-    IGNORE_CASE=true;
     MULTI=true;
     VISITOR=true;
 }
 
-PARSER_BEGIN(CDB)
+PARSER_BEGIN(CdbParser)
 package wci.frontend;
 
 import java.util.ArrayList;
@@ -23,63 +23,64 @@ import static wci.intermediate.symtabimpl.RoutineCodeImpl.*;
 import static wci.intermediate.symtabimpl.SymTabKeyImpl.*;
 import static wci.intermediate.icodeimpl.ICodeKeyImpl.*;
 
-public class CDB 
+public class CdbParser
 {
-	private static final String SOURCE_SUFFIX = ".cdb";
+    private static final String SOURCE_SUFFIX = ".cdb";
     private static final String OUTPUT_SUFFIX = ".j";
 
-	private static SymTabStack symTabStack;
+    private static SymTabStack symTabStack;
     private static SymTabEntry programId;
 
-  public static void main(String[] args)
-  	throws Exception
-  {
-	// Create and initialize the symbol table stack.
-    symTabStack = SymTabFactory.createSymTabStack();
-    Predefined.initialize(symTabStack);
+    public static void main(String[] args)
+        throws Exception
+    {
+    	// Create and initialize the symbol table stack.
+        symTabStack = SymTabFactory.createSymTabStack();
+        Predefined.initialize(symTabStack);
 
-	// Process the source file path which ends in .cdb
-    // and create the output file path which ends in .j
-	String sourceFilePath = args[0];
-    int truncatedLength = sourceFilePath.length() - SOURCE_SUFFIX.length();
-    int suffixIndex = sourceFilePath.lastIndexOf(SOURCE_SUFFIX);
-    String objectFilePath = (suffixIndex == truncatedLength)
-        ? sourceFilePath.substring(0, truncatedLength) + OUTPUT_SUFFIX
-        : sourceFilePath + OUTPUT_SUFFIX;
+        // Process the source file path which ends in .cdb
+        // and create the output file path which ends in .j
+        String sourceFilePath = args[0];
+        int truncatedLength = sourceFilePath.length() - SOURCE_SUFFIX.length();
+        int suffixIndex = sourceFilePath.lastIndexOf(SOURCE_SUFFIX);
+        String objectFilePath = (suffixIndex == truncatedLength)
+            ? sourceFilePath.substring(0, truncatedLength) + OUTPUT_SUFFIX
+            : sourceFilePath + OUTPUT_SUFFIX;
 
-	// Parse the CDB program.
-    Reader reader = new FileReader(sourceFilePath);
-    CDB parser = new CDB(reader);
-    SimpleNode rootNode = parser.program();
+        // Parse a Cdb program.
+        Reader    reader = new FileReader(sourceFilePath);
+        CdbParser parser = new CdbParser(reader);
+        SimpleNode rootNode = parser.script();
 
-    // Print the cross-reference table.
-    CrossReferencer crossReferencer = new CrossReferencer();
-    crossReferencer.print(symTabStack);
+        // Print the cross-reference table.
+        CrossReferencer crossReferencer = new CrossReferencer();
+        crossReferencer.print(symTabStack);
 
-	// Visit the parse tree nodes to decorate them with type information.
-    TypeSetterVisitor typeVisitor = new TypeSetterVisitor();
-    rootNode.jjtAccept(typeVisitor, null);
+        // Visit the parse tree nodes to decorate them with type information.
+        TypeSetterVisitor typeVisitor = new TypeSetterVisitor();
+        rootNode.jjtAccept(typeVisitor, null);
 
-	// Create and initialize the ICode wrapper for the parse tree.
-    ICode iCode = ICodeFactory.createICode();
-    iCode.setRoot(rootNode);
-    programId.setAttribute(ROUTINE_ICODE, iCode);
-
-    // Print the parse tree.
-    ParseTreePrinter treePrinter = new ParseTreePrinter(System.out);
-    treePrinter.print(symTabStack);
-  }
+        // Create and initialize the ICode wrapper for the parse tree.
+        ICode iCode = ICodeFactory.createICode();
+        iCode.setRoot(rootNode);
+        programId.setAttribute(ROUTINE_ICODE, iCode);
+        
+        // Print the parse tree.
+        ParseTreePrinter treePrinter = new ParseTreePrinter(System.out);
+        treePrinter.print(symTabStack);
+    }
 }
-PARSER_END(CDB)
+PARSER_END(CdbParser)
+
 
 SKIP: {
-    " " | "\t"
+    " " | "\r" | "\t" | "\n" | "\r\n"
 }
 
 SKIP:
 {
   <SINGLE_LINE_COMMENT : "//" (~["\n","\r"])* ("\r" | "\n" | "\r\n") >
-} 
+}
 
 //skip multi-line comments
 MORE : {
@@ -104,10 +105,6 @@ TOKEN: { /* Reserved words */
   | <WHILE     : "WHILE">
   | <FOR       : "FOR">
   | <DO        : "DO">
-  | <STRING    : "STRING">
-  | <INT       : "INT">
-  | <REAL      : "REAL">
-  | <BOOLEAN   : "BOOLEAN">
 }
 
 TOKEN: /* Special symbols */
@@ -142,8 +139,8 @@ TOKEN: { /* Identifiers, strings, and numbers */
     <IDENTIFIER : <LETTER>(<LETTER>|<DIGIT>)*>
   | <STRING_LIT : <DOUBLE_QUOTE>(~["\""])*<DOUBLE_QUOTE>>
 
-  | <INT_LIT    : <UNSIGNED_NUMBER>>
-  | <REAL_LIT   : <WHOLE><FRACTION><EXPONENT>
+  | <INTEGER    : <UNSIGNED_NUMBER>>
+  | <REAL   : <WHOLE><FRACTION><EXPONENT>
              | <WHOLE><FRACTION>
              | <WHOLE><EXPONENT>>
 
@@ -159,53 +156,56 @@ TOKEN: { /* Identifiers, strings, and numbers */
 
 TOKEN: { /*	Error token */
     <EOL     : "\r" | "\n" | "\r\n">
- |  <ERROR : ~["\r", "\n"]>
+ |  <ERROR   : ~["\r", "\n"]>
 }
 
-SimpleNode program() : {}
+SimpleNode script() : {SimpleNode rootNode;}
 {
-  (<EOL>)*
+  {
+    programId = symTabStack.enterLocal("CDB Program");
+    programId.setDefinition(DefinitionImpl.PROGRAM);
+    programId.setAttribute(ROUTINE_SYMTAB, symTabStack.push());
+    symTabStack.setProgramId(programId);
+  }
   (
     try {
-        statement() {System.out.println("Processed Statement");}
-      | error()     {handleError(token);}
+        statement()
+      | Error() {handleError(token);}
     }
     catch (ParseException ex) {
-      handleError(ex.currentToken);
+      handleError(token);
+      System.out.println("Parse Exception");
+    }
+    catch (NullPointerException ex) {	  handleError(token);
+      System.out.println("Undefined Variable");
     }
   )+
-  <EOF>
-  {return jjtThis;}
-}
-
-SimpleNode compoundStatement() : {}
-{    <LEFT_BRACE>
-	(<EOL>)*    (statement())+
-    <RIGHT_BRACE>
-	(<EOL>)*
-    { return jjtThis; }
+  <EOF>  { return jjtThis; }
 }
 
 void statement() #void : {}
 {
-  (       controlStatement()
-     | declarationStatement()
-     | assignmentStatement()
-  )
-}
-
-void controlStatement() #void : {}
-{
   (
-	  whileLoop()
-	| forLoop() 
-	| doLoop() (<EOL>)*
-    | ifStatement()
+       assignmentStatement()
+    |  declarationStatement()
+    |  ifStatement()
+    |  doLoop()
+    |  forLoop()
+    |  whileLoop()
   )
 }
 
-void whileLoop() : {}{  <WHILE> <LEFT_PAREN> expression() <RIGHT_PAREN> 
-	(<EOL>)*
+SimpleNode compoundStatement() : {}
+{
+    <LEFT_BRACE>
+    (statement())+
+    <RIGHT_BRACE>
+    { return jjtThis; }
+}
+
+void whileLoop() : {}
+{
+  <WHILE> <LEFT_PAREN> expression() <RIGHT_PAREN>
   (
 	  compoundStatement() 
 	| statement()
@@ -213,7 +213,8 @@ void whileLoop() : {}{  <WHILE> <LEFT_PAREN> expression() <RIGHT_PAREN>
 }
 
 void forLoop() : {}
-{  <FOR>
+{
+  <FOR>
   <LEFT_PAREN>
   (assignment())?
   <SEMICOLON>
@@ -221,7 +222,6 @@ void forLoop() : {}
   <SEMICOLON>
   (assignment())?
   <RIGHT_PAREN>
-  (<EOL>)*
   (
 	  compoundStatement()
 	| statement()
@@ -229,8 +229,8 @@ void forLoop() : {}
 }
 
 void doLoop() : {}
-{	<DO>
-	(<EOL>)*
+{
+	<DO>
 	(
 	  compoundStatement()
 	| statement()
@@ -239,9 +239,10 @@ void doLoop() : {}
 }
 
 void ifStatement() : {}
-{	<IF> <LEFT_PAREN> expression() <RIGHT_PAREN>
-	(<EOL>)*
-	(	  compoundStatement()
+{
+	<IF> <LEFT_PAREN> expression() <RIGHT_PAREN>
+	(
+	  compoundStatement()
 	| statement()
     )
     ( LOOKAHEAD(1) <ELSE> (
@@ -250,66 +251,65 @@ void ifStatement() : {}
     ))?
 }
 
-void declarationStatement() #void : {}
-{  <AT> declaration() <SEMICOLON> (<EOL>)*
-}
-
-void declaration() #void : {ArrayList<SymTabEntry> variableList;
+void declarationStatement() #void : {ArrayList<SymTabEntry> variableList;
 	                                 int index = 0;}
-{
-  <IDENTIFIER> {
-    variableList = new ArrayList<SymTabEntry>();
-    SymTabEntry typeId = symTabStack.lookup(token.image);
-    typeId.appendLineNumber(token.beginLine);
-    TypeSpec type = typeId.getTypeSpec();
-  }
-	<IDENTIFIER> {
-	        processVariableDecl(token, index++, variableList);
-	}
-	(
-	    <COMMA>
-	    <IDENTIFIER> {
-	        processVariableDecl(token, index++, variableList);
-	    }
-	)*
-	{
-	    for (SymTabEntry variableId : variableList) {
-	        variableId.setTypeSpec(type);
-		}	}
+{	<AT> <IDENTIFIER> {
+			SymTabEntry typeId = symTabStack.lookup(token.image);
+            typeId.appendLineNumber(token.beginLine);
+            TypeSpec type = typeId.getTypeSpec();
+	  
+        }
+        <IDENTIFIER> {
+            variableList = new ArrayList<SymTabEntry>();
+            processVariableDecl(token, index++, variableList);
+        }
+        (
+            <COMMA>
+            <IDENTIFIER> {
+                processVariableDecl(token, index++, variableList);
+            }
+        )*
+        {
+       		for (SymTabEntry variableId : variableList) {
+           		variableId.setTypeSpec(type);
+            }
+        }
+    <SEMICOLON>
 }
 
-void assignmentStatement() : {}
-{	assignment() <SEMICOLON> (<EOL>)*
+void assignmentStatement() #void : {}
+{
+    assignment()
+    <SEMICOLON>
 }
 
 void assignment() : {}
-{
-    variable() {
+{	variable() {
         SymTabEntry variableId = symTabStack.lookup(token.image);
         variableId.appendLineNumber(token.beginLine);
     }
     <EQUALS>
     expression()
-}
+}
 
 void expression() #void : {}
-{	simpleExpression() (
+{
+  simpleExpression() (
 		<EE> simpleExpression() #EE(2)
       | <NE> simpleExpression() #NE(2)
       | <LT> simpleExpression() #LT(2)
       | <LE> simpleExpression() #LE(2)
       | <GT> simpleExpression() #GT(2)
       | <GE> simpleExpression() #GE(2)
-	)?
+	)?  
 }
 
 void simpleExpression() #void : {}
 {
-    term() (
+  term() (
         "+" term() #add(2)
       | "-" term() #subtract(2)
-      | <OR> term() #or(2)
-    )*
+    )*     
 }
 
 void term() #void : {}
@@ -317,20 +317,14 @@ void term() #void : {}
     factor() (
         "*" factor() #multiply(2)
       | "/" factor() #divide(2)
-      | <AND> factor() #and(2)
     )*     
 }
 
 void factor() #void : {}
 {
-  (     variable()
-	  | integerConstant()
-	  | realConstant()
-	  | stringConstant()
-	  | booleanConstant()
-      | "-" factor() #negate(1)
-      | "(" expression() ")" 
-  )
+    variable()
+  | integerConstant()
+  | realConstant()
 }
 
 void variable() : {}
@@ -341,30 +335,26 @@ void variable() : {}
         TypeSpec type = variableId.getTypeSpec();
         jjtThis.setTypeSpec(type);
         jjtThis.setAttribute(ID, variableId);
-        }
+    }
 }
 
-void integerConstant() : {}{  <INT_LIT> {
+void integerConstant() : {}
+{
+    <INTEGER> {
         jjtThis.setTypeSpec(Predefined.integerType);
         jjtThis.setAttribute(VALUE, Integer.parseInt(token.image));
-        }}
+    }
+}
 
 void realConstant() : {}
 {
-    <REAL_LIT> {
+    <REAL> {
         jjtThis.setTypeSpec(Predefined.realType);
         jjtThis.setAttribute(VALUE, Float.parseFloat(token.image));
     }
 }
 
-void booleanConstant() : {}{	  <TRUE> {}
-	| <FALSE> {}
-}
-
-void stringConstant() : {}{	<STRING_LIT> {}
-} 
-
-void error() #void : {}
+void Error() #void : {}
 {
     <ERROR>
 }
@@ -383,15 +373,13 @@ void processVariableDecl(Token token, int index,
 JAVACODE
 String handleError(Token token) #void
 {
-  System.out.println("*** ERROR: Line " + token.beginLine +
+    System.out.println("*** ERROR: Line " + token.beginLine +
                      " after \"" + token.image + "\"");
-  
-  Token t;
-  
-  do {
-    t = getNextToken();
-  } while (t.kind != EOL && t.kind != SEMICOLON);
-  
-  jjtree.popNode();
-  return t.image;
+
+    do {
+    	token = getNextToken();
+    } while (token.kind != SEMICOLON);
+
+	//jjtree.popNode();
+    return token.image;
 }
